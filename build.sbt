@@ -3,23 +3,23 @@ import microsites.ExtraMdFileConfig
 
 lazy val buildSettings = Seq(
   organization := "com.github.finagle",
-  scalaVersion := "2.12.7",
-  crossScalaVersions := Seq("2.11.12", "2.12.7")
+  scalaVersion := "2.12.12",
+  crossScalaVersions := Seq("2.12.12", "2.13.3")
 )
 
-lazy val twitterVersion = "19.8.0"
-lazy val circeVersion = "0.11.1"
-lazy val circeIterateeVersion = "0.12.0"
-lazy val circeFs2Version = "0.11.0"
+lazy val twitterVersion = "20.9.0"
+lazy val circeVersion = "0.14.1"
+lazy val circeIterateeVersion = "0.13.0-M2"
+lazy val circeFs2Version = "0.13.0"
 lazy val shapelessVersion = "2.3.3"
-lazy val catsVersion = "1.6.1"
-lazy val argonautVersion = "6.2.3"
-lazy val iterateeVersion = "0.18.0"
-lazy val refinedVersion = "0.9.9"
-lazy val catsEffectVersion = "1.4.0"
-lazy val fs2Version =  "1.0.5"
+lazy val catsVersion = "2.2.0"
+lazy val argonautVersion = "6.3.1"
+lazy val iterateeVersion = "0.19.0"
+lazy val refinedVersion = "0.9.17"
+lazy val catsEffectVersion = "2.2.0"
+lazy val fs2Version = "2.4.4"
 
-lazy val compilerOptions = Seq(
+def compilerOptions(scalaVersion: String): Seq[String] = Seq(
   "-deprecation",
   "-encoding", "UTF-8",
   "-feature",
@@ -27,18 +27,29 @@ lazy val compilerOptions = Seq(
   "-language:higherKinds",
   "-language:implicitConversions",
   "-unchecked",
-  "-Yno-adapted-args",
   "-Ywarn-dead-code",
   "-Ywarn-numeric-widen",
-  "-Xfuture",
   "-Xlint"
+) ++ (CrossVersion.partialVersion(scalaVersion) match {
+  case Some((2, scalaMajor)) if scalaMajor == 12 => scala212CompilerOptions
+  case Some((2, scalaMajor)) if scalaMajor == 13 => scala213CompilerOptions
+})
+
+lazy val scala212CompilerOptions = Seq(
+  "-Yno-adapted-args",
+  "-Ywarn-unused-import",
+  "-Xfuture"
+)
+
+lazy val scala213CompilerOptions = Seq(
+  "-Wunused:imports"
 )
 
 val testDependencies = Seq(
-  "org.scalacheck" %% "scalacheck" % "1.14.0",
-  "org.scalatest" %% "scalatest" % "3.0.7",
+  "org.scalacheck" %% "scalacheck" % "1.14.3",
+  "org.scalatest" %% "scalatest" % "3.2.2",
   "org.typelevel" %% "cats-laws" % catsVersion,
-  "org.typelevel" %% "discipline" % "0.11.1"
+  "org.typelevel" %% "discipline-scalatest" % "2.0.1"
 )
 
 val baseSettings = Seq(
@@ -53,19 +64,18 @@ val baseSettings = Seq(
     Resolver.sonatypeRepo("releases"),
     Resolver.sonatypeRepo("snapshots")
   ),
-  scalacOptions ++= compilerOptions ++ (
-    CrossVersion.partialVersion(scalaVersion.value) match {
-      case Some((2, p)) if p >= 11 => Seq("-Ywarn-unused-import")
-      case _ => Nil
-    }
-  ),
-  scalacOptions in (Compile, console) ~= {
+  scalacOptions ++= compilerOptions(scalaVersion.value),
+  scalacOptions in(Compile, console) ~= {
     _.filterNot(Set("-Ywarn-unused-import"))
   },
-  scalacOptions in (Compile, console) += "-Yrepl-class-based",
+  scalacOptions in(Compile, console) += "-Yrepl-class-based",
   fork in Test := true,
   javaOptions in ThisBuild ++= Seq("-Xss2048K"),
-  addCompilerPlugin("org.typelevel" % "kind-projector" % "0.10.3" cross CrossVersion.binary)
+  addCompilerPlugin("org.typelevel" % "kind-projector" % "0.10.3" cross CrossVersion.binary),
+  addCompilerPlugin(scalafixSemanticdb), // enable SemanticDB
+  ThisBuild / scalafixDependencies += "com.github.liancheng" %% "organize-imports" % "0.4.2",
+  semanticdbEnabled := true,
+  semanticdbVersion := scalafixSemanticdb.revision
 )
 
 def updateVersionInFile(selectVersion: sbtrelease.Versions => String): ReleaseStep =
@@ -76,7 +86,7 @@ def updateVersionInFile(selectVersion: sbtrelease.Versions => String): ReleaseSt
 
     // files containing version to update upon release
     val filesToUpdate = Seq(
-      "docs/src/main/tut/index.md"
+      "docs/mdoc/index.md"
     )
     val pattern = """"com.github.finagle" %% "finch-.*" % "(.*)"""".r
 
@@ -86,7 +96,8 @@ def updateVersionInFile(selectVersion: sbtrelease.Versions => String): ReleaseSt
         pattern.replaceAllIn(content,
           m => m.matched.replaceAllLiterally(m.subgroups.head, newVersion))
       new PrintWriter(fileName) {
-        write(newContent); close()
+        write(newContent);
+        close()
       }
       val vcs = Project.extract(st).get(releaseVcs).get
       vcs.add(fileName).!
@@ -103,7 +114,7 @@ lazy val publishSettings = Seq(
     if (isSnapshot.value)
       Some("snapshots" at nexus + "content/repositories/snapshots")
     else
-      Some("releases"  at nexus + "service/local/staging/deploy/maven2")
+      Some("releases" at nexus + "service/local/staging/deploy/maven2")
   },
   publishArtifact in Test := false,
   pgpSecretRing := file("local.secring.gpg"),
@@ -175,6 +186,8 @@ lazy val docSettings = allSettings ++ Seq(
   micrositeName := "Finch",
   micrositeDescription := "Scala combinator library for building Finagle HTTP services",
   micrositeAuthor := "Vladimir Kostyukov",
+  micrositeCompilingDocsTool := WithMdoc,
+  mdocIn := baseDirectory.value / "mdoc",
   micrositeHighlightTheme := "atom-one-light",
   micrositeHomepage := "https://finagle.github.io/finch/",
   micrositeDocumentationUrl := "api",
@@ -191,9 +204,9 @@ lazy val docSettings = allSettings ++ Seq(
     "gray-light" -> "#E5E6E5",
     "gray-lighter" -> "#F4F3F4",
     "white-color" -> "#FFFFFF"),
-  addMappingsToSiteDir(mappings in (ScalaUnidoc, packageDoc), micrositeDocumentationUrl),
+  addMappingsToSiteDir(mappings in(ScalaUnidoc, packageDoc), micrositeDocumentationUrl),
   ghpagesNoJekyll := false,
-  scalacOptions in (ScalaUnidoc, unidoc) ++= Seq(
+  scalacOptions in(ScalaUnidoc, unidoc) ++= Seq(
     "-groups",
     "-implicits",
     "-skip-packages", "scalaz",
@@ -205,7 +218,7 @@ lazy val docSettings = allSettings ++ Seq(
     _.filterNot(Set("-Yno-predef", "-Xlint", "-Ywarn-unused-import"))
   },
   git.remoteRepo := "git@github.com:finagle/finch.git",
-  unidocProjectFilter in (ScalaUnidoc, unidoc) := inAnyProject -- inProjects(benchmarks, jsonTest),
+  unidocProjectFilter in(ScalaUnidoc, unidoc) := inAnyProject -- inProjects(benchmarks, jsonTest),
   includeFilter in makeSite := "*.html" | "*.css" | "*.png" | "*.jpg" | "*.gif" | "*.svg" | "*.js" | "*.swf" | "*.yml" | "*.md",
   siteSubdirName in ScalaUnidoc := "docs"
 )
@@ -336,13 +349,13 @@ lazy val docs = project
     )
   )
   .enablePlugins(MicrositesPlugin, ScalaUnidocPlugin)
-  .dependsOn(core, circe, argonaut, iteratee, refined)
+  .dependsOn(core, circe, argonaut, iteratee, refined, fs2)
 
 lazy val examples = project
   .settings(moduleName := "finchx-examples")
   .settings(allSettings)
   .settings(noPublish)
-  .settings(resolvers += "TM" at "http://maven.twttr.com")
+  .settings(resolvers += "TM" at "https://maven.twttr.com")
   .settings(coverageExcludedPackages :=
     """
       |io\.finch\.div\..*;
@@ -388,9 +401,9 @@ lazy val benchmarks = project
 
 val validateCommands = List(
   "clean",
-  "scalastyle",
-  "test:scalastyle",
   "compile",
+  "scalafix --check",
+  "scalafmtCheckAll",
   "test:compile",
   "coverage",
   "test",
@@ -398,3 +411,5 @@ val validateCommands = List(
   "coverageAggregate"
 )
 addCommandAlias("validate", validateCommands.mkString(";", ";", ""))
+addCommandAlias("fmt", "all compile:scalafix; all test:scalafix; scalafmtAll")
+
